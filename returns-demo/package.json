@@ -1,0 +1,20 @@
+{
+  "name": "returns-demo",
+  "version": "1.0.0",
+  "description": "服装网店退换货处理系统 Demo（Express 分层后端 + 可切换数据库）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "reset": "node scripts/reset.js",
+    "smoke": "node test/smoke.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "express": "^4.19.0"
+  },
+  "optionalDependencies": {
+    "mysql2": "^3.24.4"
+  }
+}

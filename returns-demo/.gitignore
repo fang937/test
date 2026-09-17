@@ -1,0 +1,6 @@
+node_modules/
+data/
+*.log
+backend-java/target/
+backend-java/data/
+tools/

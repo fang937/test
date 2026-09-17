@@ -1,0 +1,39 @@
+server:
+  port: 3000
+
+spring:
+  datasource:
+    # 本地演示：H2 文件库，首次启动自动建表并写入演示数据
+    url: jdbc:h2:file:${H2_FILE:./data/aftersale}
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+app:
+  db-driver: h2
+
+---
+# 接入其他设备上的 MySQL：
+#   mvn spring-boot:run -Dspring-boot.run.profiles=mysql
+#   或 java -jar target/returns-backend-1.0.0.jar --spring.profiles.active=mysql
+# 连接信息通过环境变量 DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME 覆盖
+spring:
+  config:
+    activate:
+      on-profile: mysql
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:returns_demo}?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+app:
+  db-driver: mysql
