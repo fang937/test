@@ -33,10 +33,14 @@ returns-demo/
 │   └── src/main/
 │       ├── java/com/demo/returns/
 │       │   ├── ReturnsApplication.java    Spring Boot 入口
-│       │   ├── common/                    认证拦截器 / 注解 / 异常 / 口令散列
-│       │   │   ├── AuthInterceptor.java   Bearer token → req attribute "user"
+│       │   ├── common/                    认证拦截器 / 注解 / 异常 / 口令散列 / 安全
+│       │   │   ├── AuthInterceptor.java   Bearer token（含 7 天有效期校验）→ req attr "user"
 │       │   │   ├── RequireRole.java       方法/类级岗位注解
-│       │   │   ├── WebConfig.java         拦截器注册（排除 /api/login、/api/meta）
+│       │   │   ├── WebConfig.java         拦截器注册（排除 login/meta/health）
+│       │   │   ├── LoginRateLimiter.java  登录失败限流（429）
+│       │   │   ├── SecurityHeadersFilter.java  安全响应头 + API 禁缓存
+│       │   │   ├── CorsConfig.java        CORS（默认关闭，CORS_ALLOWED_ORIGINS 放开）
+│       │   │   ├── JacksonConfig.java     整数字段拒绝字符串（qty="1" → 400）
 │       │   │   ├── ApiException.java      业务异常（status 即 HTTP 码）
 │       │   │   ├── GlobalExceptionHandler.java  统一 {"error": "..."} 响应
 │       │   │   └── PasswordUtil.java      PBKDF2WithHmacSHA256 + 随机盐
@@ -49,8 +53,8 @@ returns-demo/
 │       │   │   └── SeedRunner.java        空库时写入演示账号与订单
 │       │   └── controller/                Auth / Consumer / Staff 三组 REST 接口
 │       └── resources/
-│           ├── application.yml            默认 H2 + mysql profile（第 7 节）
-│           └── static/index.html          前端（与 public/ 同步，见第 9 节）
+│           ├── application.yml            默认 H2 + mysql profile + 日志/优雅停机
+│           └── static/                    （构建时由 pom 从 ../public 自动复制，源码中不存在）
 ├── public/index.html                前端源文件（改这里）
 ├── src/                             Node/Express 参照后端（分层同构）
 │   ├── app.js / config.js / state-machine.js
@@ -58,7 +62,12 @@ returns-demo/
 │   └── store/                       仓储契约 contract.js + sqlite/mysql 适配器
 ├── test/smoke.js                    通用冒烟测试
 ├── scripts/reset.js                 Node 版数据重置
-├── docs/                            API.md / DESIGN.md / USER-GUIDE.md / 本文档
+├── Dockerfile                       多阶段构建（Maven 构建 → JRE 17 运行）
+├── docker-compose.yml               app + MySQL 8.4 一键部署（数据持久化卷）
+├── .env.example                     部署环境变量模板（复制为 .env）
+├── scripts/build-java.sh            构建 Java 后端（自动定位/下载 Maven）
+├── scripts/reset-java.js            重置 Java 版（H2）演示数据
+├── docs/                            API / DESIGN / USER-GUIDE / DEVELOPER / DEPLOY
 ├── tools/apache-maven-3.9.9/        本地 Maven（已 gitignore）
 └── package.json                     Node 侧脚本（start/reset/smoke）
 ```
@@ -160,6 +169,20 @@ aftersale_tickets.item_fk → order_items.id
 - 金额用 `int`（元），避免浮点误差——Demo 范围内够用；
 - 时间入库 `LocalDateTime`，出参统一 `yyyy/M/d HH:mm:ss` 格式化（`AftersaleService.FMT`）。
 
+### 6.5 安全与运维机制
+
+| 机制 | 实现位置 | 说明 |
+| --- | --- | --- |
+| 登录限流 | `common/LoginRateLimiter.java`（Node: `utils/rate-limiter.js`） | 同「账号+IP」10 分钟失败 5 次 → 429；多实例部署需换 Redis |
+| 会话有效期 | `SessionRepository.SESSION_TTL`（7 天）+ `AuthService.cleanExpiredSessions()` 每小时清理 | 拦截器只认有效期内会话 |
+| 安全响应头 | `SecurityHeadersFilter`（Node: `app.js` 内中间件） | nosniff / DENY / no-referrer；`/api/*` 禁缓存 |
+| CORS | `CorsConfig` + `CORS_ALLOWED_ORIGINS` | 默认同源（不放开任何来源） |
+| 严格类型 | `JacksonConfig` | Integer 字段拒绝 JSON 字符串（前端已改为发送数字） |
+| 409 状态冲突 | `AftersaleService.transit()/receive()/review(FINAL_APPROVE)` | 与 400 业务规则错误区分 |
+| 健康检查 | `GET /api/health`（双后端） | 含数据库探活，503 = DOWN |
+| 滚动日志 | `application.yml` logging 段 | logs/app.log，10MB × 14 天 |
+| 优雅停机 | `server.shutdown: graceful` | SIGTERM 后最多 20s 处理存量请求 |
+
 ## 7. 常见开发任务
 
 ### 7.1 新增一个接口（示例：客服备注）
@@ -195,15 +218,9 @@ aftersale_tickets.item_fk → order_items.id
 ## 9. 前端开发说明
 
 - 单文件 `public/index.html`：DJI 风格 UI，无框架无构建；逻辑全在底部 `<script>`（登录态存 sessionStorage）；
-- **双副本同步**：`backend-java/src/main/resources/static/index.html` 是运行副本，改完 `public/` 后必须复制过去：
-
-  ```bash
-  cp public/index.html backend-java/src/main/resources/static/index.html
-  mvn -DskipTests package   # 再打包
-  ```
-
+- **同步已自动化**：`pom.xml` 配置了 maven-resources-plugin（copy-frontend），`mvn package` 时自动把 `public/` 复制进 jar 的 `static/`，无需手工拷贝；Docker 构建同样自动带入；
 - 角色工作台渲染入口：`boot()` 按 `me.role` 显隐区块；售后单卡片渲染：`ticketCard()` / `ticketActionsHtml()`；
-- API 调用统一走 `api(path, method, body)`（自动带 Bearer token，非 2xx 抛中文错误信息）。
+- API 调用统一走 `api(path, method, body)`（自动带 Bearer token，非 2xx 抛中文错误信息）；数量等字段必须按 JSON 数字发送（服务端拒绝字符串）。
 
 ## 10. 数据库切换与扩展
 
@@ -220,8 +237,9 @@ aftersale_tickets.item_fk → order_items.id
 
 ## 12. 已知技术债与注意事项
 
-1. **前端双副本**需手工同步（第 9 节），后续可加复制脚本或 Maven resource 插件自动化；
+1. 登录限流为单实例内存实现，多实例部署需换 Redis 等共享存储（`docs/DEPLOY.md` 第 7 节）；
 2. `createTicket()` 的 `synchronized` 只是进程内去抖，真正的并发安全依赖事务内行锁；多实例部署时以数据库锁为准；
-3. `ddl-auto: update` 适合 Demo，生产应换 Flyway/Liquibase 管理迁移；
-4. 会话无过期时间（Demo 有意为之），生产需加 TTL 清理；
-5. 时间以字符串格式返回前端（与 Node 版契约对齐）；如改 ISO 格式需同时改两处前端渲染。
+3. `ddl-auto: update` 适合 Demo/小规模生产，破坏性变更需手工迁移（建议引入 Flyway/Liquibase）；
+4. 会话 TTL 固定 7 天，无「强制下线」管理功能；
+5. 时间以字符串格式返回前端（与 Node 版契约对齐）；如改 ISO 格式需同时改两处前端渲染；
+6. 演示账号密码固定 `123456`（SeedRunner 硬编码），上线前必须修改（`docs/DEPLOY.md` 检查表）。

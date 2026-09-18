@@ -1,47 +1,42 @@
-# 服装网店退换货处理系统（Demo）
+# 服装网店退换货处理系统
 
-模拟服装网店售后部门，处理消费者从申请退货/换货到仓库验收、售后结束的完整流程。
-消费者、售后客服与仓库人员各自在工作台操作，所有状态变化记录在售后单时间线上。
+模拟服装网店售后部门：消费者提交退货/换货申请，售后客服审核，仓库收货验货，客服给出最终结论，全过程记录时间线。
+系统按**可上线标准**交付：安全加固（登录限流、会话有效期、安全响应头）、健康检查、滚动日志、优雅停机、
+Docker 一键部署（应用 + MySQL）。
 
-## 当前后端：Java（Spring Boot）
+## 快速上线（Docker Compose）
+
+```bash
+cp .env.example .env      # 修改其中的数据库密码
+docker compose up -d --build
+curl http://127.0.0.1:3000/api/health   # {"status":"UP","db":"mysql"}
+```
+
+详见 **[docs/DEPLOY.md](docs/DEPLOY.md)**（含裸机部署、Nginx TLS、备份恢复、回滚、上线检查表）。
+
+## 本地开发运行
 
 **主后端为 `backend-java/`（Java 17 语法，Spring Boot 3.5 + Spring Data JPA）**，
-本地默认使用 H2 文件数据库（零安装），通过 `mysql` profile 接入其他设备的 MySQL。
-`src/`（Node/Express 版）保留为参照实现，两者接口契约完全一致，共用同一前端和冒烟测试。
-
-### 构建与运行（Java 版）
+本地默认 H2 文件数据库（零安装）；`src/`（Node/Express 版）保留为参照实现，接口契约一致。
 
 ```bash
-cd backend-java
-mvn -DskipTests package           # 构建 target/returns-backend-1.0.0.jar（首次构建由 Maven 自动下载依赖）
-java -jar target/returns-backend-1.0.0.jar   # 启动，浏览器访问 http://localhost:3000
+npm run build:java                 # 构建（自动定位 Maven，必要时自动下载）
+java -jar backend-java/target/returns-backend-1.0.0.jar   # http://localhost:3000
+npm run reset:java                 # 重置 Java 版（H2）演示数据
 ```
 
-- 本机未装 Maven 时可使用项目自带的（`tools/apache-maven-*/bin/mvn`，见文末）；
-- 首次启动自动建表并写入演示账号与订单；数据文件在 `backend-java/data/`（H2）；
-- **接入其他设备上的 MySQL**：
+接入其他设备的 MySQL：`java -jar ... --spring.profiles.active=mysql`（`DB_HOST` 等环境变量），
+详见 `docs/DESIGN.md`「数据库切换」。
 
-  ```bash
-  java -jar target/returns-backend-1.0.0.jar --spring.profiles.active=mysql
-  # 连接信息用环境变量覆盖：DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME
-  # Windows (PowerShell): $env:DB_HOST='192.168.1.20'; $env:DB_PASSWORD='***'; java -jar ...
-  ```
-
-  连接串带 `createDatabaseIfNotExist=true`，账号有建库权限时自动建库；
-  表结构由 JPA `ddl-auto: update` 自动创建。
-
-### 冒烟测试（两种后端通用）
+## 冒烟测试（两种后端通用，34 条断言）
 
 ```bash
-# 测当前运行的 Java 后端
-SMOKE_BASE_URL=http://127.0.0.1:3000 node test/smoke.js
-
-# 测 Node 参照实现（会启动独立测试实例，不影响演示数据）
-npm run smoke
+SMOKE_BASE_URL=http://127.0.0.1:3000 node test/smoke.js   # 测运行中的后端（如 Java 版）
+npm run smoke                                              # 测 Node 参照实现（独立实例）
 ```
 
-30 条断言覆盖需求文档全部核心验收场景（正常换货/退货全流程、超量与重复申请、
-补充材料重审、仓库提前收货被拒、验货异常后客服结论、消费者越权 403、登出失效等）。
+覆盖：正常换货/退货全流程、超量与重复申请、补充材料重审、仓库提前收货（409）、
+验货异常后客服结论、消费者越权 403、健康检查、字符串数量拒绝、登录限流 429、登出失效等。
 
 ## 演示账号（密码均为 123456）
 
@@ -55,16 +50,26 @@ npm run smoke
 
 消费者选商品提交售后申请 → 客服审核（同意退回 / 要求补充材料 / 拒绝）→ 消费者补充材料或寄回 → 仓库登记收货、验货 → 客服确认模拟退款或换货补发 → 售后单完成（终态）。
 
-## 已实现的关键业务规则
+## 已实现的关键业务规则与安全机制
+
+**业务规则**
 
 - 只能对本人已完成订单申请售后（越权返回 403/400）；
-- 申请数量不能超过该商品可售后数量，拒绝/完成的单据释放数量；并发安全由事务内 `SELECT ... FOR UPDATE`（JPA `@Lock(PESSIMISTIC_WRITE)`）保证；
-- 客服同意退回后仓库才能登记收货（状态机校验）；
+- 申请数量不能超过该商品可售后数量，拒绝/完成的单据释放数量；并发安全由事务内 `SELECT ... FOR UPDATE`（JPA `@Lock(PESSIMISTIC_WRITE)`）保证；数量必须是 JSON 数字，字符串被拒绝；
+- 客服同意退回后仓库才能登记收货（状态机校验，违反返回 409 状态冲突）；
 - 验货不等于退款/换货完成，最终结论由客服给出；
 - 拒绝、补充材料、验货异常必须填写原因；
 - 每次状态变化记录操作岗位、时间和说明（aftersale_events 时间线）；
 - 模拟退款金额/补发单号，不接真实资金；
-- 密码 PBKDF2WithHmacSHA256 加盐哈希入库；会话持久化到数据库，重启服务不掉登录。
+- 密码 PBKDF2WithHmacSHA256 加盐哈希入库。
+
+**安全与运维**
+
+- 登录失败限流：同「账号+IP」10 分钟内失败 5 次临时锁定（429）；
+- 会话有效期 7 天，过期自动清理（每小时调度）；
+- 安全响应头（nosniff / DENY / no-referrer），API 响应禁缓存；
+- CORS 默认关闭，分离部署时用 `CORS_ALLOWED_ORIGINS` 精确放开；
+- `/api/health` 健康检查（含数据库探活）、滚动日志（10MB×14 天）、优雅停机。
 
 ## 工程结构
 

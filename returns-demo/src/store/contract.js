@@ -8,6 +8,7 @@ const CONTRACT = [
   // 初始化 / 重置
   'init',            // (dbConfig) => 建表 + 空库时写入演示数据
   'reset',           // () => 清空并重建演示数据
+  'userCount',       // () => 用户数（健康检查探针用）
 
   // 用户与会话
   'findUserByUsername', // (username) => user | null（含 password_hash / salt）

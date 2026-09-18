@@ -110,6 +110,10 @@ async function reset() {
   await seedIfEmpty();
 }
 
+async function userCount() {
+  return db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+}
+
 // ---------- 用户与会话 ----------
 async function findUserByUsername(username) {
   return db.prepare('SELECT * FROM users WHERE username = ?').get(username) || null;
@@ -244,7 +248,7 @@ async function listTicketEvents(id) {
 async function close() { db.close(); }
 
 module.exports = {
-  init, reset, close,
+  init, reset, close, userCount,
   findUserByUsername, findUserByToken, createSession, deleteSession,
   listCompletedOrdersWithItems, findOrderItem,
   usedAftersaleQty, createTicketIfAvailable,

@@ -340,9 +340,9 @@ let me = JSON.parse(sessionStorage.getItem('me') || 'null');
 let orders = [], tickets = [];
 const STATUS = {
   SUBMITTED:'待客服审核', MATERIAL_REQUESTED:'待补充材料', RETURN_APPROVED:'已同意退回',
-  RECEIVED:'仓库已收货', INSPECTED:'已验货待结论', COMPLETED:'售后完成', REJECTED:'已拒绝', CLOSED:'已关闭'
+  RECEIVED:'仓库已收货', INSPECTED:'已验货待结论', COMPLETED:'售后完成', REJECTED:'已拒绝'
 };
-const chip = s => `<span class="chip ${s==='COMPLETED'?'ok':(s==='REJECTED'?'bad':(s==='MATERIAL_REQUESTED'||s==='INSPECTED'?'warn':'dark'))}">${STATUS[s]||s}</span>`;
+const badge = s => `<span class="badge ${s==='COMPLETED'?'ok':(s==='REJECTED'?'bad':(s==='MATERIAL_REQUESTED'||s==='INSPECTED'?'warn':''))}">${STATUS[s]||s}</span>`;
 
 function toast(msg) {
   const t = document.getElementById('toast');
@@ -463,12 +463,13 @@ async function submitApply() {
   if (!sel.value) return errBox.textContent = '没有可申请售后的商品';
   const { orderId, itemId } = JSON.parse(sel.value);
   const imgCount = parseInt(document.getElementById('applyImgCount').value || '0', 10);
+  const qty = parseInt(document.getElementById('applyQty').value, 10);
   try {
     await api('/api/tickets', 'POST', {
       orderId, itemId,
       type: document.getElementById('applyType').value,
       reason: document.getElementById('applyReason').value,
-      qty: document.getElementById('applyQty').value,
+      qty,  // 数量按数字发送；服务端拒绝字符串等非法类型
       description: document.getElementById('applyDesc').value,
       images: Array.from({ length: imgCount }, (_, i) => `凭证图${i + 1}.jpg（模拟）`),
     });
@@ -504,8 +505,10 @@ function ticketCard(t) {
 }
 
 function renderTickets(boxId, list, role) {
-  const html = list.length
-    ? list.map(t => ticketCard(t)).join('')
+  // 按 id 去重，避免异常情况下同一单据重复渲染
+  const uniq = Object.values(Object.fromEntries(list.map(t => [t.id, t])));
+  const html = uniq.length
+    ? uniq.map(t => ticketCard(t)).join('')
     : '<p class="muted">暂无售后单。</p>';
   document.getElementById(boxId).innerHTML = html;
 }

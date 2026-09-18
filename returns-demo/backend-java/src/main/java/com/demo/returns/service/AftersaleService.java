@@ -194,8 +194,9 @@ public class AftersaleService {
             }
             case "FINAL_APPROVE" -> {
                 requireNote(note, "给出最终结论");
-                require(ticket.getStatus() == AftersaleStatus.INSPECTED,
-                        "需先完成仓库验货，才能给出最终结论");
+                if (ticket.getStatus() != AftersaleStatus.INSPECTED) {
+                    throw new ApiException(409, "需先完成仓库验货，才能给出最终结论");
+                }
                 if (ticket.getType() == TicketType.RETURN) {
                     // 模拟退款：不接真实资金
                     int amount = ticket.getItem().getPrice() * ticket.getQty();
@@ -228,8 +229,8 @@ public class AftersaleService {
     public TicketView receive(UserEntity operator, String ticketNo, WarehouseRequest req) {
         TicketEntity ticket = findTicket(ticketNo);
         if (ticket.getStatus() != AftersaleStatus.RETURN_APPROVED) {
-            // 规则：客服同意退回后，仓库才能登记收货
-            throw ApiException.badRequest("客服尚未同意退回，不能提前登记收货");
+            // 规则：客服同意退回后，仓库才能登记收货（状态冲突 409）
+            throw new ApiException(409, "客服尚未同意退回，不能提前登记收货");
         }
         String note = req.note() == null ? "" : req.note().trim();
         transit(ticket, AftersaleStatus.RECEIVED, operator, "登记收到退回包裹", note);
@@ -258,10 +259,13 @@ public class AftersaleService {
         require(!note.isBlank(), "执行「" + action + "」必须填写原因或说明");
     }
 
+    /** 状态机冲突：请求与当前单据状态不匹配，属客户端状态错误（409），区别于业务规则 400 */
     private void transit(TicketEntity ticket, AftersaleStatus target,
                          UserEntity operator, String action, String note) {
-        require(ticket.getStatus().canTransitTo(target),
-                "当前状态「" + ticket.getStatus().getLabel() + "」不允许执行「" + action + "」");
+        if (!ticket.getStatus().canTransitTo(target)) {
+            throw new ApiException(409, "当前状态「" + ticket.getStatus().getLabel()
+                    + "」不允许执行「" + action + "」");
+        }
         ticket.setStatus(target);
         ticket.setUpdatedAt(LocalDateTime.now());
         eventRepository.save(new TicketEventEntity(ticket, operator.getName(), operator.getRole(),

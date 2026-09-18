@@ -1,0 +1,10 @@
+backend-java/target/
+backend-java/data/
+backend-java/logs/
+node_modules/
+data/
+logs/
+tools/
+.env
+*.log
+.git

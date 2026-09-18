@@ -128,6 +128,11 @@ async function reset() {
   await seedIfEmpty();
 }
 
+async function userCount() {
+  const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM users');
+  return n;
+}
+
 // ---------- 用户与会话 ----------
 async function findUserByUsername(username) {
   const [rows] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
@@ -280,7 +285,7 @@ async function listTicketEvents(id) {
 async function close() { if (pool) await pool.end(); }
 
 module.exports = {
-  init, reset, close,
+  init, reset, close, userCount,
   findUserByUsername, findUserByToken, createSession, deleteSession,
   listCompletedOrdersWithItems, findOrderItem,
   usedAftersaleQty, createTicketIfAvailable,

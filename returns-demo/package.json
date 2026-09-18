@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "reset": "node scripts/reset.js",
-    "smoke": "node test/smoke.js"
+    "smoke": "node test/smoke.js",
+    "build:java": "bash scripts/build-java.sh",
+    "reset:java": "node scripts/reset-java.js"
   },
   "engines": {
     "node": ">=22.5"

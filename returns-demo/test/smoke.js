@@ -1,6 +1,7 @@
-// 冒烟测试：覆盖需求文档「核心验收场景」的正常 / 异常 / 越权情况
-// 运行：npm run smoke —— 启动本地 Node 参照实现并测试（独立 data/smoke.db）
+// 冒烟测试：覆盖需求文档「核心验收场景」的正常 / 异常 / 越权 / 运维情况（34 条断言）
+// 运行：npm run smoke —— 启动本地 Node 参照实现并测试（独立 data/smoke.db，每次全新）
 //      SMOKE_BASE_URL=http://127.0.0.1:3000 node test/smoke.js —— 测试已运行的后端（如 Java 版）
+// 注意：外部模式要求后端为全新演示数据（Java 版：npm run reset:java 后重启），测试会写入单据
 const EXTERNAL = process.env.SMOKE_BASE_URL;
 if (!EXTERNAL) {
   process.env.DB_DRIVER = 'sqlite';
@@ -71,7 +72,8 @@ if (!EXTERNAL) {
   console.log('— 权限与状态机 —');
   const early = await call('POST', '/api/tickets/AS0001/warehouse', { token: cang.data.token,
     body: { action: 'RECEIVE' } });
-  ok(early.status === 400 && String(early.data.error).includes('尚未同意退回'), '客服同意退回前仓库不能登记收货');
+  ok(early.status === 409 && String(early.data.error).includes('尚未同意退回'),
+    '客服同意退回前仓库不能登记收货(409 状态冲突)');
   const peek = await call('GET', '/api/tickets/AS0001', { token: mei.data.token });
   ok(peek.status === 403, '消费者不能查看他人售后单(403)');
   const staffListAsConsumer = await call('GET', '/api/tickets', { token: lin.data.token });
@@ -138,6 +140,24 @@ if (!EXTERNAL) {
     body: { action: 'FINAL_APPROVE', note: '验货无误' } });
   ok(refund.status === 200 && refund.data.status === 'COMPLETED' && refund.data.refundAmount === 129,
     '退货完成并记录模拟退款金额 ￥129');
+
+  console.log('— 运维与健壮性 —');
+  const health = await call('GET', '/api/health');
+  ok(health.status === 200 && health.data.status === 'UP', '健康检查 /api/health 返回 UP');
+  const qtyStr = await call('POST', '/api/tickets', { token: lin.data.token,
+    body: { orderId: 'O2026091001', itemId: 'i3', type: 'RETURN', reason: '尺码问题', qty: '1' } });
+  ok(qtyStr.status === 400, '数量为字符串被拒绝(400)，前端必须发送数字');
+  const conflict = await call('POST', '/api/tickets/AS0001/warehouse', { token: cang.data.token,
+    body: { action: 'RECEIVE', note: 'x' } });
+  ok(conflict.status === 409, '对已完成单据重复登记收货返回 409 状态冲突');
+  let limited = null;
+  // 用不存在的探针账号触发限流，避免锁定真实演示账号影响后续手工测试
+  for (let i = 0; i < 6; i++) {
+    limited = await call('POST', '/api/login', { body: { username: 'rl_probe', password: 'wrong' } });
+  }
+  ok(limited.status === 429, '连续登录失败触发限流(429)');
+  const stillOk = await call('POST', '/api/login', { body: { username: 'xiaomei', password: '123456' } });
+  ok(stillOk.status === 200, '限流只锁定探针账号，不影响正常账号登录');
 
   console.log('— 列表筛选与登出 —');
   const done = await call('GET', '/api/tickets?status=COMPLETED', { token: kefu.data.token });

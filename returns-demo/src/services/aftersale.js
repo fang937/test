@@ -53,9 +53,12 @@ async function loadView(id) {
   return toView(row, events, images);
 }
 
+/** 状态机冲突：请求与当前单据状态不匹配，属客户端状态错误（409），区别于业务规则 400 */
 async function transit(ticketId, fromStatus, toStatus, operator, action, note) {
-  check(canTransit(fromStatus, toStatus),
-    `当前状态「${STATUS[fromStatus]}」不允许执行「${action}」`);
+  if (!canTransit(fromStatus, toStatus)) {
+    throw new ApiError(409,
+      `当前状态「${STATUS[fromStatus]}」不允许执行「${action}」`);
+  }
   const repo = await getStore();
   await repo.updateTicket(ticketId, { status: toStatus });
   await repo.addTicketEvent(ticketId, {
@@ -73,8 +76,10 @@ async function createTicket(user, body) {
   check(reason && String(reason).trim(), '请填写申请原因');
   check(String(reason).length <= 100, '申请原因不能超过100字');
   check(String(description || '').length <= 500, '补充说明不能超过500字');
-  const n = parseInt(qty, 10);
-  check(Number.isInteger(n) && n >= 1 && n <= 99, '申请数量必须是1-99的整数');
+  const n = qty;
+  if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 99) {
+    throw new ApiError(400, '申请数量必须是1-99的整数');
+  }
   const imgs = Array.isArray(images) ? images.slice(0, 9).map(String) : [];
   check(imgs.every(f => f.length <= 200), '凭证文件名过长');
 
@@ -157,7 +162,9 @@ async function reviewTicket(user, ticketId, body) {
     await transit(ticketId, t.status, 'REJECTED', user, '拒绝申请', String(note).trim());
   } else if (action === 'FINAL_APPROVE') {
     requireNote(note, '给出最终结论');
-    check(t.status === 'INSPECTED', '需先完成仓库验货，才能给出最终结论');
+    if (t.status !== 'INSPECTED') {
+      throw new ApiError(409, '需先完成仓库验货，才能给出最终结论');
+    }
     let extra;
     if (t.type === 'RETURN') {
       // 模拟退款：不接真实资金
@@ -185,9 +192,9 @@ async function reviewTicket(user, ticketId, body) {
 // ---------- 仓库 ----------
 async function receiveTicket(user, ticketId, body) {
   const { note } = body || {};
-  // 规则：客服同意退回后，仓库才能登记收货（transit 内部按状态机校验）
+  // 规则：客服同意退回后，仓库才能登记收货（状态冲突 409）
   await transitChecked(user, ticketId, 'RETURN_APPROVED', 'RECEIVED', '登记收到退回包裹',
-    String(note || '').trim(), '客服尚未同意退回，不能提前登记收货');
+    String(note || '').trim(), '客服尚未同意退回，不能提前登记收货', 409);
   return loadView(ticketId);
 }
 
@@ -207,11 +214,11 @@ async function inspectTicket(user, ticketId, body) {
   return loadView(ticketId);
 }
 
-async function transitChecked(user, ticketId, fromStatus, toStatus, action, note, failMsg) {
+async function transitChecked(user, ticketId, fromStatus, toStatus, action, note, failMsg, status = 400) {
   const repo = await getStore();
   const t = await repo.findTicketById(ticketId);
   if (!t) throw new ApiError(404, '售后单不存在');
-  if (t.status !== fromStatus) throw new ApiError(400, failMsg);
+  if (t.status !== fromStatus) throw new ApiError(status, failMsg);
   await transit(ticketId, t.status, toStatus, user, action, note);
 }
 

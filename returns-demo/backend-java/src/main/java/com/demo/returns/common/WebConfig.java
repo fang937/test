@@ -18,6 +18,6 @@ public class WebConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new AuthInterceptor(sessionRepository))
                 .addPathPatterns("/api/**")
-                .excludePathPatterns("/api/login", "/api/meta");
+                .excludePathPatterns("/api/login", "/api/meta", "/api/health");
     }
 }
