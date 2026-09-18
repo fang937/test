@@ -96,14 +96,6 @@ docs/USER-GUIDE.md            用户操作手册（三岗位）
 docs/DEVELOPER.md             开发者文档（环境 / 结构 / 常见任务 / 调试）
 ```
 
-## 本机 Maven（可选）
-
-本机未安装 Maven 时，项目根目录 `tools/apache-maven-*/bin/mvn` 可直接使用：
-
-```bash
-export JAVA_HOME='D:\vscode\java\JDK'
-'D:\大学\大作业\tools\apache-maven-3.9.9\bin\mvn' -DskipTests package
-```
 
 ## 已知限制（Demo 范围）
 
